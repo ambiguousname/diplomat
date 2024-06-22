@@ -1,9 +1,5 @@
-// Base enumerator definition
-{% if !doc_str.is_empty() -%}
-/** {{doc_str}}
-*/
-{% endif -%}
-export class {{type_name}} {
+{% extends "base.js.jinja" %}
+{% block body %}
 {%- if !typescript %}
     #value = undefined;
 
@@ -41,7 +37,4 @@ export class {{type_name}} {
     {%- let variant_name = formatter.fmt_enum_variant(variant) %}
     static {{variant_name}} {% if typescript -%} : {{type_name}} {%- else -%} = new {{type_name}}("{{variant_name}}") {%- endif -%};
 {% endfor %}
-{% for method in methods %}
-    {{ method|indent(4) }}
-{% endfor %}
-}
+{% endblock %}

@@ -118,16 +118,13 @@ impl<'tcx> JSGenerationContext<'tcx> {
 
         let name = self.formatter.fmt_type_name(type_id);
 
-        const FILE_TYPES : [FileType; 2] = [FileType::Module, FileType::Typescript];
+        let mut context = TypeGenerationContext {
+            js_ctx: self,
+            imports: BTreeSet::new(),
+            base: None,
+        };
 
-        for file_type in FILE_TYPES {
-            let mut context = TypeGenerationContext {
-                js_ctx: self,
-                typescript: file_type.is_typescript(),
-                imports: BTreeSet::new(),
-            };
-
-            // TODO: A lot of this could go faster if we cached info for typescript, instead of re-generating it.
+        {
             let contents = match type_def {
                 TypeDef::Enum(enum_def) => {
                     context.generate_enum_from_def(enum_def, type_id, &name)
@@ -144,16 +141,21 @@ impl<'tcx> JSGenerationContext<'tcx> {
                 _ => unreachable!("HIR/AST variant {:?} is unknown.", type_def)
             };
 
-
-            let file_name = self.formatter.fmt_file_name(&name, &file_type);
-
             // Remove our self reference:
-            context.imports.remove(&self.formatter.fmt_import_statement(&name, context.typescript, "./".into()));
+            context.imports.remove(&name);
 
-            self.files.add_file(file_name, context.generate_base(contents));
+            const FILE_TYPES : [FileType; 2] = [FileType::Module, FileType::Typescript];
+            
+            let mut base = context.base.unwrap();
+            for file_type in FILE_TYPES {
+                let file_name = self.formatter.fmt_file_name(&name, &file_type);
+
+                base.set_typescript(file_type.is_typescript());
+
+                self.files.add_file(file_name, base.render().unwrap());
+            }
         }
         
-        // TODO: Typescript variant.
         self.exports.push(self.formatter.fmt_export_statement(&name, false, "./".into()).into());
     }
 }

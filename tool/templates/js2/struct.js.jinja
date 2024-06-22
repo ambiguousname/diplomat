@@ -1,8 +1,5 @@
-{% if !docs.is_empty() %}
-/** {{docs}}
-*/
-{% endif %}
-export class {{type_name}} {
+{% extends "base.js.jinja" %}
+{% block body %}
     {%- for field in fields %}
     #{{field.field_name}};
     get {{field.field_name}}() {% if typescript %}: {{field.js_type_name}};{% else %} {
@@ -62,8 +59,5 @@ export class {{type_name}} {
         return this;
     }
     {%- endif %}
-
-{%- for method in methods %}
-    {{ method|indent(4) }}
-{% endfor %}
 }
+{% endblock %}

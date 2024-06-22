@@ -41,7 +41,7 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
 				let type_name = self.js_ctx.formatter.fmt_type_name(opaque_id);
 				
 				// Add to the import list:
-				self.imports.insert(self.js_ctx.formatter.fmt_import_statement(&type_name, self.typescript, "./".into()));
+				self.imports.insert(type_name.clone());
 
 				if self.js_ctx.tcx.resolve_type(opaque_id).attrs().disable {
 					self.js_ctx.errors
@@ -61,7 +61,7 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
                 let type_name = self.js_ctx.formatter.fmt_type_name(id);
 				
 				// Add to the import list:
-				self.imports.insert(self.js_ctx.formatter.fmt_import_statement(&type_name, self.typescript, "./".into()));
+				self.imports.insert(type_name.clone());
 
                 if self.js_ctx.tcx.resolve_type(id).attrs().disable {
                     self.js_ctx.errors
@@ -74,7 +74,7 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
                 let type_name = self.js_ctx.formatter.fmt_type_name(enum_id);
 				
 				// Add to the import list:
-				self.imports.insert(self.js_ctx.formatter.fmt_import_statement(&type_name, self.typescript, "./".into()));
+				self.imports.insert(type_name.clone());
 
                 if self.js_ctx.tcx.resolve_type(enum_id).attrs().disable {
                     self.js_ctx.errors.push_error(format!("Using disabled type {type_name}"))
@@ -371,11 +371,10 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
 				match return_type {
 					ReturnType::Fallible(_, Some(e)) => {
 						
-						// Because we don't add Result<_, Error> types to imports, we do that here:
-						if !self.typescript {
-							let type_name = self.js_ctx.formatter.fmt_type_name(e.id().unwrap());
-							self.imports.insert(self.js_ctx.formatter.fmt_import_statement(&type_name, false, "./".into()));
-						}
+						// Because we don't add Result<_, Error> types to imports, we do that here.
+						// TODO: Should probably be exclusive to JS.
+						let type_name = self.js_ctx.formatter.fmt_type_name(e.id().unwrap());
+						self.imports.insert(type_name);
 
 						let receive_deref = self.gen_c_to_js_deref_for_type(e, "diplomat_receive_buffer".into(), 0);
 						format!("throw new diplomatRuntime.FFIError({})", self.gen_c_to_js_for_type(e, receive_deref, lifetime_environment))

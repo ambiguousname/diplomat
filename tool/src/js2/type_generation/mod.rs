@@ -6,101 +6,125 @@ use diplomat_core::hir::{self, EnumDef, LifetimeEnv, Method, OpaqueDef, SpecialM
 
 use askama::{self, Template};
 
-use super::{FileType, JSGenerationContext, formatter::JSFormatter};
+use super::{JSGenerationContext, formatter::JSFormatter};
 
 
 mod converter;
 use converter::StructBorrowContext;
 
-pub(super) struct TypeGenerationContext<'jsctx, 'tcx> {
-    pub js_ctx : &'jsctx JSGenerationContext<'tcx>,
-    pub typescript : bool,
-    pub imports : BTreeSet<String>,
+pub(super) struct TypeGenerationContext<'tygen, 'tcx> {
+    pub js_ctx : &'tygen JSGenerationContext<'tcx>,
+    /// All of the type names this file wants to import.
+    pub imports : BTreeSet<Cow<'tygen, str>>,
+    /// The thing we're going to render. Store it so that we can store information across files, but change small details like whether or not we're working in typescript.
+    pub base : Option<&'tygen mut dyn ClassTemplate>,
 }
 
-impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
-    pub(super) fn generate_base(&self, body : String) -> String {
-        #[derive(Template)]
-        #[template(path="js2/base.js.jinja", escape="none")]
-        struct BaseTemplate<'info> {
-            body : String,
-            typescript : bool,
-            imports : &'info BTreeSet<String>,
-        }
-        BaseTemplate {body, typescript: self.typescript, imports: &self.imports}.render().unwrap()
-    }
+/// As defined in templates/js2/base.js.jinja.
+pub trait ClassTemplate {
+    /// Set whether or not we're about to render in typescript.
+    fn set_typescript(&mut self, is_typescript : bool);
 
+    fn render(&self) -> askama::Result<String>;
+}
+
+
+impl<'tygen, 'tcx> TypeGenerationContext<'tygen, 'tcx> {
 	/// Generate an enumerator's body for a file from the given definition. Called by [`JSGenerationContext::generate_file_from_type`]
-    pub(super) fn generate_enum_from_def(&mut self, enum_def : &'tcx EnumDef, type_id : TypeId, type_name : &str) -> String {
-        let mut methods = enum_def.methods
-        .iter()
-        .flat_map(|method| self.generate_method_body(type_id, type_name, method, self.typescript))
+    pub(super) fn generate_enum_from_def<'a>(&'a mut self, enum_def : &'tcx EnumDef, type_id : TypeId, type_name : &'a str) {
+        let methods = enum_def.methods.iter()
+        .flat_map(|method| {
+            self.generate_method_info(type_id, type_name, method)
+         })
         .collect::<Vec<_>>();
 
-        let special_method_body = self.generate_special_method_body(&enum_def.special_method_presence, self.typescript);
-        methods.push(special_method_body);
+        let special_method_info = self.generate_special_method_info(&enum_def.special_method_presence);
 
         #[derive(Template)]
         #[template(path="js2/enum.js.jinja", escape="none")]
-        struct ImplTemplate<'a> {
+        struct ImplTemplate<'a, 'tygen, 'tcx> {
             enum_def: &'a EnumDef,
             formatter : &'a JSFormatter<'a>,
             type_name : &'a str,
             typescript : bool,
 
-            doc_str : String,
+            ty_gen_ctx : &'tygen TypeGenerationContext<'tygen, 'tcx>,
 
-            methods : Vec<String>
+            methods : Vec<MethodInfo<'a>>,
+            special_method_info : Option<SpecialMethodInfo<'a>>,
         }
 
-        ImplTemplate{
+        impl ClassTemplate for ImplTemplate<'_, '_, '_> {
+            fn set_typescript(&mut self, is_typescript : bool) {
+                self.typescript = is_typescript;
+            }
+
+            fn render(&self) -> askama::Result<String> {
+                askama::Template::render(self)
+            }
+        }
+
+        self.base = Some(&mut ImplTemplate{
             enum_def,
             formatter: &self.js_ctx.formatter,
             type_name,
-            typescript: self.typescript,
+            typescript: false,
 
-            doc_str: self.js_ctx.formatter.fmt_docs(&enum_def.docs),
+            ty_gen_ctx: self,
 
-            methods
-        }.render().unwrap()
+            methods: methods,
+            special_method_info
+        });
     }
 
-    pub(super) fn generate_opaque_from_def(&mut self, opaque_def: &'tcx OpaqueDef, type_id : TypeId, type_name : &str) -> String {
+    pub(super) fn generate_opaque_from_def(&mut self, opaque_def: &'tcx OpaqueDef, type_id : TypeId, type_name : &str) {
         let mut methods = opaque_def.methods.iter()
         .flat_map(|method| {
-            self.generate_method_body(type_id, type_name, method, self.typescript)
+            self.generate_method_info(type_id, type_name, method)
          })
         .collect::<Vec<_>>();
 
-        let special_method_body = self.generate_special_method_body(&opaque_def.special_method_presence, self.typescript);
-        methods.push(special_method_body);
+        let special_method_info = self.generate_special_method_info(&opaque_def.special_method_presence);
 
         let destructor = self.js_ctx.formatter.fmt_destructor_name(type_id);
 
         #[derive(Template)]
         #[template(path = "js2/opaque.js.jinja", escape="none")]
-        struct ImplTemplate<'a> {
+        struct ImplTemplate<'a, 'tygen, 'tcx> {
             type_name: &'a str,
             typescript : bool,
 
             lifetimes : &'a LifetimeEnv,
-            methods : Vec<String>,
+            methods : Vec<MethodInfo<'a>>,
             destructor : String,
+            special_method_info : Option<SpecialMethodInfo<'a>>,
 
-            docs : String,
+            ty_gen_ctx : &'tygen TypeGenerationContext<'tygen, 'tcx>
         }
 
-        ImplTemplate {
+        impl ClassTemplate for ImplTemplate<'_, '_, '_> {
+            fn set_typescript(&mut self, is_typescript : bool) {
+                self.typescript = is_typescript;
+            }
+
+            fn render(&self) -> askama::Result<String> {
+                askama::Template::render(self)
+            }
+        }
+
+        self.base = Some(&mut ImplTemplate {
             type_name,
             methods,
             destructor,
-            typescript: self.typescript,
-            docs: self.js_ctx.formatter.fmt_docs(&opaque_def.docs),
-            lifetimes : &opaque_def.lifetimes
-        }.render().unwrap()
+            special_method_info,
+            lifetimes : &opaque_def.lifetimes,
+            typescript: false,
+
+            ty_gen_ctx: self
+        })
     }
 
-    pub(super) fn generate_struct_from_def<P: hir::TyPosition>(&mut self, struct_def : &'tcx hir::StructDef<P>, type_id : TypeId, is_out : bool, type_name : &str, mutable: bool) -> String {
+    pub(super) fn generate_struct_from_def<P: hir::TyPosition>(&mut self, struct_def : &'tcx hir::StructDef<P>, type_id : TypeId, is_out : bool, type_name : &str, mutable: bool) {
         struct FieldInfo<'info, P: hir::TyPosition> {
             field_name: Cow<'info, str>,
             field_type : &'info Type<P>,
@@ -203,38 +227,52 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
 
         let mut methods = struct_def.methods
         .iter()
-        .flat_map(|method| self.generate_method_body(type_id, type_name, method, self.typescript))
+        .flat_map(|method| self.generate_method_info(type_id, type_name, method))
         .collect::<Vec<_>>();
 
-        methods.push(self.generate_special_method_body(&struct_def.special_method_presence, self.typescript));
+        let special_method_info = self.generate_special_method_info(&struct_def.special_method_presence);
 
         #[derive(Template)]
         #[template(path="js2/struct.js.jinja", escape = "none")]
-        struct ImplTemplate<'a, P: hir::TyPosition> {
+        struct ImplTemplate<'a, 'tygen, 'tcx, P: hir::TyPosition> {
             type_name : &'a str,
             mutable : bool,
             typescript: bool,
             fields : Vec<FieldInfo<'a, P>>,
-            methods: Vec<String>,
-            docs: String,
+            methods: Vec<MethodInfo<'a>>,
+            special_method_info : Option<SpecialMethodInfo<'a>>,
             lifetimes : &'a LifetimeEnv,
+
+            ty_gen_ctx : &'tygen TypeGenerationContext<'tygen, 'tcx>,
         }
 
-        ImplTemplate {
+        impl<P : hir::TyPosition> ClassTemplate for ImplTemplate<'_, '_, '_, P> {
+            fn set_typescript(&mut self, is_typescript : bool) {
+                self.typescript = is_typescript;
+            }
+
+            fn render(&self) -> askama::Result<String> {
+                askama::Template::render(self)
+            }
+        }
+
+        self.base = Some(&mut ImplTemplate {
             type_name,
             mutable,
-            typescript: self.typescript,
+            typescript: false,
             fields,
             methods,
-            docs: self.js_ctx.formatter.fmt_docs(&struct_def.docs),
+            special_method_info,
             lifetimes: &struct_def.lifetimes,
-        }.render().unwrap()
+
+            ty_gen_ctx: self,
+        });
     }
 
     /// Generate a string Javascript representation of a given method.
     /// 
     /// Currently, this assumes that any method will be part of a class. That will probably be a parameter that's added, however.
-    fn generate_method_body(&mut self, type_id : TypeId, type_name : &str, method : &'tcx Method, typescript : bool) -> Option<String> {
+    fn generate_method_info(&mut self, type_id : TypeId, type_name : &str, method : &'tcx Method) -> Option<MethodInfo> {
         if method.attrs.disable {
             return None;
         }
@@ -246,7 +284,6 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
         let mut method_info = MethodInfo::default();
 
         method_info.c_method_name = self.js_ctx.formatter.fmt_c_method_name(type_id, method);
-        method_info.typescript = typescript;
         method_info.method = Some(method);
 
         if let Some(param_self) = method.param_self.as_ref() {
@@ -342,22 +379,14 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
             _ => todo!("Method Declaration {:?} not implemented", method.attrs.special_method),
         };
 
-        Some(method_info.render().unwrap())
+        Some(method_info)
     }
     
     /// If a special method exists inside a structure, opaque, or enum through [`SpecialMethodPresence`],
     /// We need to make sure Javascript can access it.
     /// 
     /// This is mostly for iterators, using https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols
-    fn generate_special_method_body(&mut self, special_method_presence : &SpecialMethodPresence, typescript : bool) -> String {
-        #[derive(Template)]
-        #[template(path="js2/special_method.js.jinja", escape="none")]
-        struct SpecialMethodInfo<'a> {
-            iterator : Option<Cow<'a, str>>,
-            iterable : Option<Cow<'a, str>>,
-            typescript : bool,
-        }
-
+    fn generate_special_method_info(&mut self, special_method_presence : &SpecialMethodPresence) -> Option<SpecialMethodInfo> {
         let mut iterator = None;
 
         if let Some(ref val) = special_method_presence.iterator {
@@ -370,25 +399,26 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
             let Some(ref val) = iterator_def.special_method_presence.iterator else {
                 self.js_ctx.errors
                     .push_error("Found iterable not returning an iterator type".into());
-                return "".to_string();
+                return None;
             };
             iterable = Some(self.gen_success_ty(val))
         }
 
-        SpecialMethodInfo {
+        Some(SpecialMethodInfo {
             iterator,
             iterable,
-            typescript
-        }.render().unwrap()
+            typescript: false
+        })
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct ParamInfo<'a> {
     ty : Cow<'a, str>,
     name : Cow<'a, str>
 }
 
+#[derive(Clone)]
 struct SliceParam<'a> {
     name : Cow<'a, str>,
     /// How to convert the JS type into a C slice.
@@ -396,7 +426,7 @@ struct SliceParam<'a> {
     is_borrowed : bool,
 }
 
-#[derive(Default, Template)]
+#[derive(Default, Clone, Template)]
 #[template(path="js2/method.js.jinja", escape="none")]
 struct MethodInfo<'info> {
     method : Option<&'info Method>,
@@ -418,6 +448,14 @@ struct MethodInfo<'info> {
     
     alloc_expressions : Vec<Cow<'info, str>>,
     cleanup_expressions : Vec<Cow<'info, str>>
+}
+
+#[derive(Template)]
+#[template(path="js2/special_method.js.jinja", escape="none")]
+struct SpecialMethodInfo<'a> {
+    iterator : Option<Cow<'a, str>>,
+    iterable : Option<Cow<'a, str>>,
+    typescript : bool,
 }
 
 // Helpers used in templates (Askama has restrictions on Rust syntax)
