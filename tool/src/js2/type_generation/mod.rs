@@ -32,7 +32,7 @@ pub trait ClassTemplate {
 impl<'tygen, 'tcx> TypeGenerationContext<'tygen, 'tcx> {
 	/// Generate an enumerator's body for a file from the given definition. Called by [`JSGenerationContext::generate_file_from_type`]
     pub(super) fn generate_enum_from_def<'a>(&'a mut self, enum_def : &'tcx EnumDef, type_id : TypeId, type_name : &'a str) {
-        let methods = enum_def.methods.iter()
+        let mut methods = enum_def.methods.iter()
         .flat_map(|method| {
             self.generate_method_info(type_id, type_name, method)
          })
@@ -50,7 +50,7 @@ impl<'tygen, 'tcx> TypeGenerationContext<'tygen, 'tcx> {
 
             ty_gen_ctx : &'tygen TypeGenerationContext<'tygen, 'tcx>,
 
-            methods : Vec<MethodInfo<'a>>,
+            methods : &'a [MethodInfo<'a>],
             special_method_info : Option<SpecialMethodInfo<'a>>,
         }
 
@@ -72,7 +72,7 @@ impl<'tygen, 'tcx> TypeGenerationContext<'tygen, 'tcx> {
 
             ty_gen_ctx: self,
 
-            methods: methods,
+            methods: methods.as_slice(),
             special_method_info
         });
     }
@@ -284,7 +284,7 @@ impl<'tygen, 'tcx> TypeGenerationContext<'tygen, 'tcx> {
         let mut method_info = MethodInfo::default();
 
         method_info.c_method_name = self.js_ctx.formatter.fmt_c_method_name(type_id, method);
-        method_info.method = Some(method);
+        method_info.output_is_ffi_unit = method.output.is_ffi_unit();
 
         if let Some(param_self) = method.param_self.as_ref() {
             visitor.visit_param(&param_self.ty.clone().into(), "this");
@@ -357,7 +357,7 @@ impl<'tygen, 'tcx> TypeGenerationContext<'tygen, 'tcx> {
 
         method_info.return_type = format!(": {}", self.gen_js_return_type_str(&method.output));
 
-        method_info.return_expression = self.gen_c_to_js_for_return_type(&mut method_info, &method.lifetime_env);
+        method_info.return_expression = self.gen_c_to_js_for_return_type(&method, &mut method_info, &method.lifetime_env);
         
         method_info.method_lifetimes_map = visitor.borrow_map();
         method_info.lifetimes = Some(&method.lifetime_env);
@@ -429,7 +429,7 @@ struct SliceParam<'a> {
 #[derive(Default, Clone, Template)]
 #[template(path="js2/method.js.jinja", escape="none")]
 struct MethodInfo<'info> {
-    method : Option<&'info Method>,
+    output_is_ffi_unit : bool,
     method_decl : String,
     /// Native C method name
     c_method_name : Cow<'info, str>,

@@ -259,10 +259,8 @@ impl<'jsctx, 'tcx> TypeGenerationContext<'jsctx, 'tcx> {
 	/// Give us pure JS for returning types.
 	/// This basically handles the conversions from whatever the WASM gives us to a JS-friendly type.
 	/// We access [`super::MethodInfo`] to handle allocation and cleanup.
-	pub(super) fn gen_c_to_js_for_return_type(&mut self, method_info: &mut super::MethodInfo, lifetime_environment : &LifetimeEnv) -> Option<Cow<'tcx, str>> {
-		let return_type = &method_info.method.unwrap().output; 
-		
-
+	pub(super) fn gen_c_to_js_for_return_type(&mut self, method : &hir::Method, method_info: &mut super::MethodInfo, lifetime_environment : &LifetimeEnv) -> Option<Cow<'tcx, str>> {
+		let return_type = &method.output; 
 		
         // Conditions for allocating a diplomat buffer:
         // 1. Function returns an Option<> or Result<>.
