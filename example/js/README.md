@@ -1,3 +1,6 @@
+# Documentation for WebAssembly
+https://github.com/WebAssembly/tool-conventions/
+
 # Diplomat NPM Demo package
 
 This directory (`example/js/`) demonstrates how you would go about releasing an NPM package that uses Diplomat bindings for JavaScript. It contains three subdirectories, each a sample NPM package:
