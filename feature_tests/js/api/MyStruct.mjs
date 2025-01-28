@@ -212,7 +212,7 @@ export class MyStruct {
 
         const diplomatReceive = wasm.diplomat_alloc(32, 8);
 
-        let a = new Uint8Array(diplomatReceive, 0, 1);
+        let a = new Uint8Array(wasm.memory.buffer, diplomatReceive, 1);
         a[0] = this.#a;
         
         const result = wasm.MyStruct_into_a(diplomatReceive);
