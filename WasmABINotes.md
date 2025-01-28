@@ -23,7 +23,7 @@ intoA() {
 }
 ```
 
-We instead pass in a pointer to the struct:
+We instead pass in a pointer to the struct (per https://github.com/WebAssembly/tool-conventions/blob/main/BasicCABI.md#function-arguments-and-return-values):
 
 ```js
 intoA() {
