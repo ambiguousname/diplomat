@@ -1,6 +1,9 @@
 [config]
 default_to_workspace = false
 
+[env.wasm-abi]
+RUSTFLAGS="-Zwasm-c-abi=spec"
+
 # If adding a new backend, be sure to update:
 # - test-native (if necessary)
 # - test-example
