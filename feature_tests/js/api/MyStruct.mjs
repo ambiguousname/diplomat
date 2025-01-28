@@ -209,8 +209,13 @@ export class MyStruct {
 
     intoA() {
         let functionCleanupArena = new diplomatRuntime.CleanupArena();
+
+        const diplomatReceive = wasm.diplomat_alloc(32, 8);
+
+        let a = new Uint8Array(diplomatReceive, 0, 1);
+        a[0] = this.#a;
         
-        const result = wasm.MyStruct_into_a(...this._intoFFI());
+        const result = wasm.MyStruct_into_a(diplomatReceive);
     
         try {
             return result;
