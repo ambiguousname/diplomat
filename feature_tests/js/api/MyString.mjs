@@ -39,19 +39,13 @@ export class MyString {
         let functionCleanupArena = new diplomatRuntime.CleanupArena();
         
         const vSlice = functionCleanupArena.alloc(diplomatRuntime.DiplomatBuf.str8(wasm, v));
-        // TODO: Pretty sure you need to allocate an area in memory (Uint32) that's just (ptr, size).
         const diplomatSend = wasm.diplomat_alloc(32, 4);
         let arr = new Uint32Array(wasm.memory.buffer, diplomatSend, 2);
 
         arr[0] = vSlice.ptr;
         arr[1] = vSlice.size;
-        console.log(arr);
         
         const result = wasm.MyString_new(arr);
-
-        let out = new Uint32Array(wasm.memory.buffer, diplomatSend, 2);
-
-        console.log(diplomatRuntime.readString8(wasm, out[0], out[1]));
     
         try {
             return new MyString(diplomatRuntime.internalConstructor, result, []);
