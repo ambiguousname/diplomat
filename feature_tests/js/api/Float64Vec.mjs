@@ -88,7 +88,14 @@ export class Float64Vec {
         
         const vSlice = functionCleanupArena.alloc(diplomatRuntime.DiplomatBuf.slice(wasm, v, "i32"));
         
-        const result = wasm.Float64Vec_new_isize(...vSlice.splat());
+        const diplomatSend = wasm.diplomat_alloc(8, 4);
+
+        let arr = new Uint32Array(wasm.memory.buffer, diplomatSend, 2);
+
+        arr[0] = vSlice.ptr;
+        arr[1] = vSlice.size;
+        
+        const result = wasm.Float64Vec_new_isize(diplomatSend);
     
         try {
             return new Float64Vec(diplomatRuntime.internalConstructor, result, []);

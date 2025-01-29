@@ -39,13 +39,13 @@ export class MyString {
         let functionCleanupArena = new diplomatRuntime.CleanupArena();
         
         const vSlice = functionCleanupArena.alloc(diplomatRuntime.DiplomatBuf.str8(wasm, v));
-        const diplomatSend = wasm.diplomat_alloc(32, 4);
+        const diplomatSend = wasm.diplomat_alloc(8, 4);
         let arr = new Uint32Array(wasm.memory.buffer, diplomatSend, 2);
 
         arr[0] = vSlice.ptr;
         arr[1] = vSlice.size;
         
-        const result = wasm.MyString_new(arr);
+        const result = wasm.MyString_new(diplomatSend);
     
         try {
             return new MyString(diplomatRuntime.internalConstructor, result, []);
