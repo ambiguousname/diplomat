@@ -161,7 +161,29 @@ export class BigStructWithStuff {
 
     assertValue(extraVal) {
         let functionCleanupArena = new diplomatRuntime.CleanupArena();
-        wasm.BigStructWithStuff_assert_value(...this._intoFFI(), extraVal);
+
+        const send = wasm.diplomat_alloc(20, 1);
+
+        let first = new Uint8Array(wasm.memory.buffer, send, 1);
+        first[0] = this.#first;
+
+        let second = new Uint16Array(wasm.memory.buffer, send + 2, 1);
+        second[0] = this.#second;
+
+        let third = new Uint16Array(wasm.memory.buffer, send + 4, 1);
+        third[0] = this.#third;
+
+        let fourth_first = new Uint8Array(wasm.memory.buffer, send + 8, 1);
+        fourth_first[0] = this.#fourth.first;
+
+        let fourth_second = new Uint32Array(wasm.memory.buffer, send + 12, 1);
+        fourth_second[0] = this.#fourth.second;
+
+        let fifth = new Uint8Array(wasm.memory.buffer, send + 16, 1);
+        fifth[0] = this.#fifth;
+
+
+        wasm.BigStructWithStuff_assert_value(send, extraVal);
     
         try {}
         

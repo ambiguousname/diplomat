@@ -111,7 +111,16 @@ export class ScalarPairWithPadding {
 
     assertValue() {
         let functionCleanupArena = new diplomatRuntime.CleanupArena();
-        wasm.ScalarPairWithPadding_assert_value(...this._intoFFI());
+
+        const send = wasm.diplomat_alloc(8, 1);
+
+        let first = new Uint8Array(wasm.memory.buffer, send, 1);
+        first[0] = this.#first;
+
+        let second = new Uint32Array(wasm.memory.buffer, send + 4, 1);
+        second[0] = this.#second;
+
+        wasm.ScalarPairWithPadding_assert_value(send);
     
         try {}
         
