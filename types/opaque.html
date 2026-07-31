@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Stringifiers - The Diplomat Book</title>
+        <title>Opaque types - The Diplomat Book</title>
 
 
         <!-- Custom HTML head -->
@@ -174,36 +174,106 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="stringifiers"><a class="header" href="#stringifiers">Stringifiers</a></h1>
-<p>(Supported by <code>dart</code>, <code>kotlin</code>, and <code>nanobind</code>, queried with <code>#[diplomat::cfg(supports=stringifiers)]</code>. Intended to be supported in <code>js</code>.)</p>
-<p>Some languages have a designated way to provide a method for converting a type to a string.</p>
-<p>The <code>stringifier</code>  attribute can be applied to such a method:</p>
+                        <h1 id="opaque-types"><a class="header" href="#opaque-types">Opaque Types</a></h1>
+<p>In the vast majority of cases, we’d like to expose Rust types over FFI “opaquely”, that is, the FFI code does not know anything about the contents of these types, rather it wants to do things with the type.</p>
+<p>By default, Diplomat will not let you expose fields of types other than the <a href="../types.html">allowed types</a> over FFI. The following code will trigger a resolution error when running <code>diplomat-tool</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[diplomat::bridge]
 mod ffi {
-    #[diplomat::opaque]
-    struct Foo;
-
-    impl Foo {
-        #[diplomat::attr(auto, stringifier)]
-        pub fn dump(&amp;self, out: &amp;mut DiplomatWrite) {
-            ...
+    pub struct MyFFIType {
+        pub a: i32,
+        pub b: Vec&lt;String&gt;, // or "SomeTypeDefinedElsewhere"
+    }
+    
+    impl MyFFIType {
+        pub fn create() -&gt; MyFFIType {
+            todo!()
         }
     }
 }
 <span class="boring">}</span></code></pre>
-<p>In Dart, this will generate a <code>toString()</code> method.</p>
+<p>Of course, if Diplomat is to be able to usefully expose Rust APIs without requiring everything be defined within Diplomat’s bridge blocks, there has to be some way to include them in this the API.</p>
+<p>For this in Diplomat we declare <em>opaque types</em>, which can only exist behind pointers. Such types can contain whatever they want, but they can never be passed over the stack through FFI, and the other side cannot peek into them in ways other than calling explicitly defined methods.</p>
+<p>For example, say we have the following type:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct Person {
+    name: String,
+    age: u8,
+}
+
+impl Person {
+    pub fn new(name: String, age: u8) -&gt; Self {
+        Self {
+            name, age
+        }
+    }
+
+    pub fn get_age(&amp;self) -&gt; u8 {
+        self.age
+    }
+
+    pub fn dump(&amp;self) {
+        println!("Person {} of age {}", self.name, self.age);
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>To expose it over FFI, we’d do something like:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[diplomat::bridge]
+mod ffi {
+    // import this from wherever, does not need
+    // to be the same crate
+    use super::Person as RustPerson;
+
+    #[diplomat::opaque]
+    pub struct Person(RustPerson);
+
+    impl Person {
+        pub fn create(s: &amp;str) -&gt; Box&lt;MyCollection&gt; {
+            Box::new(Person(RustPerson::new(s.into())))
+        }
+
+        pub fn get_age(&amp;self) -&gt; u8 {
+            self.age
+        }
+
+        pub fn dump(&amp;self) {
+            self.0.dump()
+        }
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>This will generate code exposing <code>create()</code>, <code>get_age()</code>, and <code>dump()</code> over FFI, as well as glue to ensure the destructor is called. However this will not expose any way to get at the <code>RustPerson</code>.</p>
+<p>For example, the generated C++ looks something like</p>
+<pre><code class="language-cpp">class Person {
+ public:
+  static std::unique_ptr&lt;Person&gt; create(const std::string_view s, int8_t age);
+  int8_t get_age();
+  void dump();
+  // snip
+ private:
+};
+</code></pre>
+<p>When exposing your library over FFI, most of the main types will probably end up being “opaque”.</p>
+<h1 id="boxes-are-return-only"><a class="header" href="#boxes-are-return-only">Boxes are return-only</a></h1>
+<p><code>Box&lt;T&gt;</code> can only be returned, not accepted as a parameter. This is because in garbage collected languages it is not possible to know if we are the unique owner when converting back to Rust. There are some techniques we could use to add such functionality, see <a href="https://github.com/rust-diplomat/diplomat/issues/317">#317</a></p>
+<h1 id="mutation"><a class="header" href="#mutation">Mutation</a></h1>
+<p>There are some <a href="https://github.com/rust-diplomat/diplomat/issues/225">soundness concerns</a> around mutable types over FFI. To help with checking that, Diplomat requires explicit opt in for opaque types to be mutated, use <code>#[diplomat::opaque_mut]</code> if you wish to mutate an opaque type.</p>
+<p>Currently the full set of checks is not implemented yet. The general idea is that any type that can be mutated over FFI should not also hand out references to stuff within itself (copies are fine).</p>
+<p>If you need that property to implement borrowing iterators, consider using a <code>Cell</code> to store iterator state.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../attrs/comparators.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../types.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../attrs/references.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../types/structs.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -213,11 +283,11 @@ mod ffi {
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../attrs/comparators.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../types.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../attrs/references.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../types/structs.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
